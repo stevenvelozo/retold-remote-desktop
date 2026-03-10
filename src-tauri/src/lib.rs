@@ -71,6 +71,7 @@ pub fn run()
 		.plugin(tauri_plugin_dialog::init())
 		.plugin(tauri_plugin_shell::init())
 		.plugin(tauri_plugin_store::Builder::default().build())
+		.plugin(tauri_plugin_libmpv::init())
 		// ---- Managed state ----
 		.manage(Mutex::new(server_manager::ServerState::default()))
 		.manage(Mutex::new(mpv_controller::MpvState::default()))

@@ -61,6 +61,7 @@
 			]
 		},
 		"store:default",
-		"window-state:default"
+		"window-state:default",
+		"libmpv:default"
 	]
 }

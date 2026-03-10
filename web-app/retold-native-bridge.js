@@ -798,8 +798,91 @@
 		}, 200);
 	}
 
+	// ---- Embedded libmpv state ----
+	var _libmpvAvailable = null; // null = unknown, true/false after probe
+	var _libmpvInitialized = false;
+	var _libmpvEventUnlisten = null;
+	var _libmpvPropertyState =
+	{
+		'pause': true,
+		'time-pos': null,
+		'duration': null,
+		'volume': 100,
+		'speed': 1.0,
+		'filename': null,
+		'mute': false
+	};
+
+	// Probe embedded libmpv at startup (Tauri only)
+	function _probeEmbeddedMpv()
+	{
+		if (!window.__RETOLD_NATIVE__.isTauri) { _libmpvAvailable = false; return; }
+
+		_tauriInvoke('plugin:libmpv|init', {
+			mpvConfig:
+			{
+				initialOptions:
+				{
+					'vo': 'gpu-next',
+					'hwdec': 'auto-safe',
+					'keep-open': 'yes'
+				},
+				observedProperties:
+				{
+					'pause': 'flag',
+					'time-pos': 'double',
+					'duration': 'double',
+					'volume': 'double',
+					'speed': 'double',
+					'filename': 'string',
+					'mute': 'flag'
+				}
+			},
+			windowLabel: 'main'
+		})
+		.then(function ()
+		{
+			console.log('[RetoldBridge] Embedded libmpv initialized successfully');
+			_libmpvAvailable = true;
+			_libmpvInitialized = true;
+			_installLibmpvEventListener();
+		})
+		.catch(function (pError)
+		{
+			console.warn('[RetoldBridge] Embedded libmpv not available, falling back to external mpv:', pError);
+			_libmpvAvailable = false;
+		});
+	}
+
+	function _installLibmpvEventListener()
+	{
+		if (!window.__TAURI__ || !window.__TAURI__.event || !window.__TAURI__.event.listen) return;
+
+		window.__TAURI__.event.listen('mpv-event-main', function (pEvent)
+		{
+			var tmpPayload = pEvent.payload;
+			if (!tmpPayload) return;
+
+			if (tmpPayload.event === 'property-change' && tmpPayload.name)
+			{
+				_libmpvPropertyState[tmpPayload.name] = tmpPayload.data;
+				_updateEmbeddedOverlay();
+			}
+			else if (tmpPayload.event === 'end-file')
+			{
+				_stopEmbeddedPlayback();
+			}
+		})
+		.then(function (pUnlisten)
+		{
+			_libmpvEventUnlisten = pUnlisten;
+		});
+	}
+
 	// ---- Native player overlay and keyboard controls ----
 	var _nativePlayerStatusInterval = null;
+	var _embeddedOverlayHideTimer = null;
+	var _embeddedMode = false; // true = embedded libmpv, false = external process
 
 	function _formatTime(pSeconds)
 	{
@@ -822,7 +905,7 @@
 
 		var tmpOverlay = document.createElement('div');
 		tmpOverlay.id = 'RetoldBridge-NativePlayer';
-		tmpOverlay.className = 'retold-native-player-bar';
+		tmpOverlay.className = _embeddedMode ? 'retold-embedded-player-overlay' : 'retold-native-player-bar';
 		tmpOverlay.innerHTML =
 			'<div class="retold-native-player-inner">' +
 				'<div class="retold-native-player-title" id="RetoldBridge-NP-Title">' + (pTitle || 'Playing') + '</div>' +
@@ -849,12 +932,52 @@
 
 		document.body.appendChild(tmpOverlay);
 
-		// Start polling mpv status
-		_nativePlayerStatusInterval = setInterval(_pollNativePlayerStatus, 500);
+		if (_embeddedMode)
+		{
+			// For embedded mode: auto-hide overlay, show on mouse move/keypress
+			_resetOverlayAutoHide();
+			document.addEventListener('mousemove', _onEmbeddedMouseMove);
+		}
+		else
+		{
+			// For external process mode: poll mpv status
+			_nativePlayerStatusInterval = setInterval(_pollNativePlayerStatus, 500);
+		}
+	}
+
+	function _resetOverlayAutoHide()
+	{
+		var tmpOverlay = document.getElementById('RetoldBridge-NativePlayer');
+		if (tmpOverlay)
+		{
+			tmpOverlay.classList.remove('retold-embedded-player-overlay-hidden');
+		}
+		if (_embeddedOverlayHideTimer)
+		{
+			clearTimeout(_embeddedOverlayHideTimer);
+		}
+		_embeddedOverlayHideTimer = setTimeout(function ()
+		{
+			var tmpOv = document.getElementById('RetoldBridge-NativePlayer');
+			if (tmpOv && _embeddedMode && window.__RETOLD_NATIVE__.mpvPlaying)
+			{
+				tmpOv.classList.add('retold-embedded-player-overlay-hidden');
+			}
+		}, 3000);
+	}
+
+	function _onEmbeddedMouseMove()
+	{
+		if (_embeddedMode && window.__RETOLD_NATIVE__.mpvPlaying)
+		{
+			_resetOverlayAutoHide();
+		}
 	}
 
 	function _hideNativePlayerOverlay()
 	{
+		document.removeEventListener('mousemove', _onEmbeddedMouseMove);
+
 		var tmpOverlay = document.getElementById('RetoldBridge-NativePlayer');
 		if (tmpOverlay)
 		{
@@ -869,6 +992,58 @@
 		{
 			clearInterval(_nativePlayerStatusInterval);
 			_nativePlayerStatusInterval = null;
+		}
+
+		if (_embeddedOverlayHideTimer)
+		{
+			clearTimeout(_embeddedOverlayHideTimer);
+			_embeddedOverlayHideTimer = null;
+		}
+	}
+
+	// Update overlay from embedded libmpv property events (no polling needed)
+	function _updateEmbeddedOverlay()
+	{
+		if (!_embeddedMode || !window.__RETOLD_NATIVE__.mpvPlaying) return;
+
+		var tmpStatusEl = document.getElementById('RetoldBridge-NP-Status');
+		var tmpTimeEl = document.getElementById('RetoldBridge-NP-Time');
+		if (!tmpStatusEl || !tmpTimeEl) return;
+
+		var tmpParts = [];
+		if (_libmpvPropertyState['pause'] === true)
+		{
+			tmpParts.push('Paused');
+		}
+		else
+		{
+			tmpParts.push('Playing');
+		}
+		if (typeof _libmpvPropertyState['volume'] === 'number')
+		{
+			var tmpVolStr = 'Vol: ' + Math.round(_libmpvPropertyState['volume']) + '%';
+			if (_libmpvPropertyState['mute']) tmpVolStr += ' (muted)';
+			tmpParts.push(tmpVolStr);
+		}
+		if (typeof _libmpvPropertyState['speed'] === 'number' && Math.abs(_libmpvPropertyState['speed'] - 1.0) > 0.01)
+		{
+			tmpParts.push(_libmpvPropertyState['speed'].toFixed(1) + 'x');
+		}
+		tmpStatusEl.textContent = tmpParts.join('  ');
+
+		var tmpPos = _libmpvPropertyState['time-pos'];
+		var tmpDur = _libmpvPropertyState['duration'];
+		if (typeof tmpPos === 'number' && typeof tmpDur === 'number')
+		{
+			tmpTimeEl.textContent = _formatTime(tmpPos) + ' / ' + _formatTime(tmpDur);
+		}
+		else if (typeof tmpPos === 'number')
+		{
+			tmpTimeEl.textContent = _formatTime(tmpPos);
+		}
+		else
+		{
+			tmpTimeEl.textContent = '';
 		}
 	}
 
@@ -931,10 +1106,126 @@
 			});
 	}
 
+	// ---- Embedded playback control ----
+	function _embeddedMpvCommand(pName, pArgs)
+	{
+		return _tauriInvoke('plugin:libmpv|command', {
+			name: pName,
+			args: pArgs || [],
+			windowLabel: 'main'
+		});
+	}
+
+	function _embeddedMpvSetProperty(pName, pValue)
+	{
+		return _tauriInvoke('plugin:libmpv|set_property', {
+			name: pName,
+			value: pValue,
+			windowLabel: 'main'
+		});
+	}
+
+	function _startEmbeddedPlayback(pURL, pTitle)
+	{
+		// Make the webview background transparent so video layer shows through
+		document.body.classList.add('retold-embedded-video-active');
+
+		_embeddedMode = true;
+		window.__RETOLD_NATIVE__.mpvPlaying = true;
+
+		_embeddedMpvCommand('loadfile', [pURL])
+			.then(function ()
+			{
+				_showNativePlayerOverlay(pTitle);
+			})
+			.catch(function (pError)
+			{
+				console.error('[RetoldBridge] Embedded mpv loadfile failed:', pError);
+				_stopEmbeddedPlayback();
+			});
+	}
+
+	function _stopEmbeddedPlayback()
+	{
+		_embeddedMode = false;
+		window.__RETOLD_NATIVE__.mpvPlaying = false;
+
+		// Restore opaque backgrounds
+		document.body.classList.remove('retold-embedded-video-active');
+
+		_hideNativePlayerOverlay();
+
+		// Stop mpv playback (graceful — won't destroy the player instance)
+		_embeddedMpvCommand('stop', []).catch(function () { /* ignore */ });
+	}
+
 	function _nativePlayerKeyHandler(pEvent)
 	{
 		if (!window.__RETOLD_NATIVE__.mpvPlaying) return;
 
+		if (_embeddedMode)
+		{
+			// Embedded libmpv: send commands directly via plugin API
+			var tmpHandled = true;
+
+			switch (pEvent.key)
+			{
+				case ' ':
+					_embeddedMpvSetProperty('pause', !_libmpvPropertyState['pause']);
+					break;
+				case 'ArrowRight':
+					_embeddedMpvCommand('seek', [pEvent.shiftKey ? 30 : 5, 'relative']);
+					break;
+				case 'ArrowLeft':
+					_embeddedMpvCommand('seek', [pEvent.shiftKey ? -30 : -5, 'relative']);
+					break;
+				case 'ArrowUp':
+					_embeddedMpvCommand('add', ['volume', 5]);
+					break;
+				case 'ArrowDown':
+					_embeddedMpvCommand('add', ['volume', -5]);
+					break;
+				case 'm':
+					_embeddedMpvCommand('cycle', ['mute']);
+					break;
+				case 'f':
+					// Toggle fullscreen via Tauri window API
+					if (window.__TAURI__ && window.__TAURI__.window)
+					{
+						var tmpWin = window.__TAURI__.window.getCurrentWindow();
+						tmpWin.isFullscreen().then(function (pIsFull)
+						{
+							tmpWin.setFullscreen(!pIsFull);
+						});
+					}
+					break;
+				case '[':
+					_embeddedMpvCommand('add', ['speed', -0.25]);
+					break;
+				case ']':
+					_embeddedMpvCommand('add', ['speed', 0.25]);
+					break;
+				case 'Backspace':
+					_embeddedMpvSetProperty('speed', 1.0);
+					break;
+				case 'q':
+				case 'Escape':
+					_stopEmbeddedPlayback();
+					break;
+				default:
+					tmpHandled = false;
+			}
+
+			if (tmpHandled)
+			{
+				pEvent.preventDefault();
+				pEvent.stopPropagation();
+				_resetOverlayAutoHide();
+			}
+			return;
+		}
+
+		// External process mode: send commands via mpv_control IPC
 		var tmpCommand = null;
 
 		switch (pEvent.key)
@@ -977,7 +1268,6 @@
 				return; // Don't intercept unrecognized keys
 		}
 
-		// Prevent retold-remote's key handlers from firing
 		pEvent.preventDefault();
 		pEvent.stopPropagation();
 
@@ -1005,6 +1295,15 @@
 	{
 		if (window.__RETOLD_NATIVE__.isTauri)
 		{
+			// Tier 1: Embedded libmpv (renders behind transparent webview)
+			if (_libmpvAvailable === true)
+			{
+				_startEmbeddedPlayback(pURL, pTitle);
+				return;
+			}
+
+			// Tier 2: External mpv process (separate window)
+			_embeddedMode = false;
 			_tauriInvoke('mpv_play', { url: pURL, title: pTitle })
 				.then(function ()
 				{
@@ -1014,7 +1313,7 @@
 				.catch(function (pError)
 				{
 					console.error('[RetoldBridge] Native playback failed:', pError);
-					// Fall back to browser playback for video
+					// Tier 3: Fall back to browser playback
 					if (typeof pict !== 'undefined' && pict.views['RetoldRemote-MediaViewer'] && pict.views['RetoldRemote-MediaViewer'].playVideo)
 					{
 						pict.views['RetoldRemote-MediaViewer'].playVideo();
@@ -1077,6 +1376,9 @@
 	// execute and call fetchCapabilities() during parsing, the patched fetch()
 	// and __RETOLD_SERVER_URL__ are already in place.
 	_installURLRewriting();
+
+	// Probe embedded libmpv availability (async, non-blocking)
+	_probeEmbeddedMpv();
 
 	var _savedURL = _getSavedServerURL();
 	if (_savedURL)

@@ -35,7 +35,7 @@
 			"icons/icon.icns",
 			"icons/icon.ico"
 		],
-		"resources": []
+		"resources": ["lib/**/*"]
 	},
 	"plugins": {
 		"shell": {

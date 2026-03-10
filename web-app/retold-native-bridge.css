@@ -324,3 +324,40 @@
 	color: #334455;
 	margin: 0 2px;
 }
+
+/* ---- Embedded Video Mode ---- */
+/* When embedded libmpv is playing, make backgrounds transparent
+   so the native video layer behind the webview shows through */
+
+body.retold-embedded-video-active,
+body.retold-embedded-video-active #ContentEditor-Application-Container,
+body.retold-embedded-video-active #RetoldRemote-Viewer-Container,
+body.retold-embedded-video-active .RetoldRemote-MediaViewer-Container
+{
+	background: transparent !important;
+}
+
+/* Embedded player overlay — positioned at bottom, auto-hides */
+.retold-embedded-player-overlay
+{
+	position: fixed;
+	bottom: 0;
+	left: 0;
+	right: 0;
+	z-index: 90000;
+	background: rgba(10, 10, 20, 0.85);
+	backdrop-filter: blur(12px);
+	-webkit-backdrop-filter: blur(12px);
+	border-top: 1px solid rgba(233, 69, 96, 0.3);
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+	color: #e0e0e0;
+	animation: retold-np-slide-in 0.3s ease-out;
+	transition: opacity 0.4s ease, transform 0.4s ease;
+}
+
+.retold-embedded-player-overlay-hidden
+{
+	opacity: 0;
+	transform: translateY(100%);
+	pointer-events: none;
+}
