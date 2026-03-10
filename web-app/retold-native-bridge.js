@@ -117,6 +117,147 @@
 	}
 
 	// ---- URL rewriting ----
+	// Tauri proxy — calls Rust proxy_fetch command via IPC, bypasses CORS entirely
+	function _tauriInvoke(pCommand, pArgs)
+	{
+		if (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke)
+		{
+			return window.__TAURI__.core.invoke(pCommand, pArgs);
+		}
+		if (window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke)
+		{
+			return window.__TAURI_INTERNALS__.invoke(pCommand, pArgs);
+		}
+		return Promise.reject(new Error('Tauri invoke not available'));
+	}
+
+	// Creates a Headers-like wrapper around a plain {key:value} object
+	// so that response.headers.get('X-Custom-Header') works correctly
+	function _makeHeaders(pHeadersObj)
+	{
+		var tmpRaw = pHeadersObj || {};
+		return {
+			get: function (pName)
+			{
+				var tmpLower = pName.toLowerCase();
+				for (var tmpKey in tmpRaw)
+				{
+					if (tmpRaw.hasOwnProperty(tmpKey) && tmpKey.toLowerCase() === tmpLower)
+					{
+						return tmpRaw[tmpKey];
+					}
+				}
+				return null;
+			},
+			has: function (pName)
+			{
+				var tmpLower = pName.toLowerCase();
+				for (var tmpKey in tmpRaw)
+				{
+					if (tmpRaw.hasOwnProperty(tmpKey) && tmpKey.toLowerCase() === tmpLower)
+					{
+						return true;
+					}
+				}
+				return false;
+			},
+			forEach: function (pCallback)
+			{
+				for (var tmpKey in tmpRaw)
+				{
+					if (tmpRaw.hasOwnProperty(tmpKey))
+					{
+						pCallback(tmpRaw[tmpKey], tmpKey, this);
+					}
+				}
+			},
+			entries: function ()
+			{
+				var tmpEntries = [];
+				for (var tmpKey in tmpRaw)
+				{
+					if (tmpRaw.hasOwnProperty(tmpKey))
+					{
+						tmpEntries.push([tmpKey, tmpRaw[tmpKey]]);
+					}
+				}
+				return tmpEntries;
+			}
+		};
+	}
+
+	// Wraps the Rust proxy_fetch result as a fetch-like Response object
+	function _proxyFetch(pURL, pOptions)
+	{
+		var tmpMethod = (pOptions && pOptions.method) ? pOptions.method : 'GET';
+		var tmpBody = (pOptions && pOptions.body) ? pOptions.body : null;
+
+		// Forward request headers (e.g. Content-Type: application/json)
+		var tmpRequestHeaders = null;
+		if (pOptions && pOptions.headers)
+		{
+			tmpRequestHeaders = {};
+			if (pOptions.headers instanceof Headers)
+			{
+				pOptions.headers.forEach(function (pValue, pKey) { tmpRequestHeaders[pKey] = pValue; });
+			}
+			else if (typeof pOptions.headers === 'object')
+			{
+				for (var tmpKey in pOptions.headers)
+				{
+					if (pOptions.headers.hasOwnProperty(tmpKey))
+					{
+						tmpRequestHeaders[tmpKey] = pOptions.headers[tmpKey];
+					}
+				}
+			}
+		}
+
+		return _tauriInvoke('proxy_fetch', {
+			url: pURL,
+			method: tmpMethod,
+			body: tmpBody,
+			headers: tmpRequestHeaders
+		}).then(function (pResult)
+		{
+			// pResult = { status, headers, body }
+			var tmpResponseHeaders = _makeHeaders(pResult.headers);
+			var tmpResponseBody = pResult.body;
+			var tmpStatus = pResult.status;
+
+			var tmpResponse = {
+				ok: tmpStatus >= 200 && tmpStatus < 300,
+				status: tmpStatus,
+				statusText: '',
+				headers: tmpResponseHeaders,
+				url: pURL,
+				type: 'basic',
+				redirected: false,
+				json: function () {
+					try
+					{
+						return Promise.resolve(JSON.parse(tmpResponseBody));
+					}
+					catch (pErr)
+					{
+						return Promise.reject(new SyntaxError('JSON parse error: ' + pErr.message));
+					}
+				},
+				text: function () { return Promise.resolve(tmpResponseBody); },
+				blob: function () { return Promise.resolve(new Blob([tmpResponseBody])); },
+				arrayBuffer: function ()
+				{
+					var tmpEncoder = new TextEncoder();
+					return Promise.resolve(tmpEncoder.encode(tmpResponseBody).buffer);
+				},
+				clone: function () { return Object.assign({}, tmpResponse); },
+				body: tmpResponseBody
+			};
+
+			return tmpResponse;
+		});
+	}
+
 	function _shouldRewriteURL(pURL)
 	{
 		if (typeof pURL !== 'string') return false;
@@ -124,6 +265,13 @@
 		return (pURL.startsWith('/api/') ||
 				pURL.startsWith('/content/') ||
 				pURL.startsWith('/content-hashed/'));
+	}
+
+	function _isServerURL(pURL)
+	{
+		if (typeof pURL !== 'string') return false;
+		if (!window.__RETOLD_SERVER_URL__) return false;
+		return pURL.startsWith(window.__RETOLD_SERVER_URL__);
 	}
 
 	function _rewriteURL(pURL)
@@ -137,22 +285,46 @@
 
 	function _installURLRewriting()
 	{
-		// Patch fetch()
+		// Patch fetch() — use Tauri proxy for server requests (bypasses CORS)
 		var tmpOriginalFetch = window.fetch;
 		window.fetch = function (pURL, pOptions)
 		{
+			var tmpResolvedURL = pURL;
 			if (typeof pURL === 'string')
 			{
-				pURL = _rewriteURL(pURL);
+				tmpResolvedURL = _rewriteURL(pURL);
 			}
 			else if (pURL instanceof Request && _shouldRewriteURL(pURL.url))
 			{
-				pURL = new Request(_rewriteURL(pURL.url), pURL);
+				tmpResolvedURL = new Request(_rewriteURL(pURL.url), pURL);
 			}
-			return tmpOriginalFetch.call(this, pURL, pOptions);
+
+			// Use Tauri proxy for cross-origin server requests (bypasses CORS)
+			if (window.__RETOLD_NATIVE__.isTauri)
+			{
+				var tmpURL = (typeof tmpResolvedURL === 'string') ? tmpResolvedURL :
+					(tmpResolvedURL instanceof Request) ? tmpResolvedURL.url : null;
+				if (tmpURL && _isServerURL(tmpURL))
+				{
+					console.log('[RetoldBridge] Proxying fetch:', tmpURL);
+					return _proxyFetch(tmpURL, pOptions)
+						.then(function (pResponse)
+						{
+							console.log('[RetoldBridge] Proxy response:', tmpURL, 'status:', pResponse.status);
+							return pResponse;
+						})
+						.catch(function (pError)
+						{
+							console.error('[RetoldBridge] Proxy fetch error:', tmpURL, pError);
+							throw pError;
+						});
+				}
+			}
+
+			return tmpOriginalFetch.call(this, tmpResolvedURL, pOptions);
 		};
 
-		// Patch XMLHttpRequest.open()
+		// Patch XMLHttpRequest.open() — rewrite URLs
 		var tmpOriginalXHROpen = XMLHttpRequest.prototype.open;
 		XMLHttpRequest.prototype.open = function (pMethod, pURL)
 		{
@@ -160,10 +332,98 @@
 			{
 				pURL = _rewriteURL(pURL);
 			}
+			// Store resolved URL so send() can redirect through Tauri proxy if needed
+			this._retoldResolvedURL = pURL;
+			this._retoldMethod = pMethod;
 			var tmpArgs = Array.prototype.slice.call(arguments);
 			tmpArgs[1] = pURL;
 			return tmpOriginalXHROpen.apply(this, tmpArgs);
 		};
+
+		// Patch XMLHttpRequest.send() — for server URLs, use Tauri proxy
+		var tmpOriginalXHRSend = XMLHttpRequest.prototype.send;
+
+		// Also capture setRequestHeader calls for XHR requests
+		var tmpOriginalSetRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
+		XMLHttpRequest.prototype.setRequestHeader = function (pName, pValue)
+		{
+			if (!this._retoldHeaders)
+			{
+				this._retoldHeaders = {};
+			}
+			this._retoldHeaders[pName] = pValue;
+			return tmpOriginalSetRequestHeader.apply(this, arguments);
+		};
+
+		XMLHttpRequest.prototype.send = function (pBody)
+		{
+			var tmpSelf = this;
+			if (window.__RETOLD_NATIVE__.isTauri && tmpSelf._retoldResolvedURL && _isServerURL(tmpSelf._retoldResolvedURL))
+			{
+				// Route through Tauri's CORS-free Rust HTTP client
+				var tmpOptions = {
+					method: tmpSelf._retoldMethod || 'GET',
+					body: pBody || null
+				};
+				if (tmpSelf._retoldHeaders)
+				{
+					tmpOptions.headers = tmpSelf._retoldHeaders;
+				}
+
+				_proxyFetch(tmpSelf._retoldResolvedURL, tmpOptions)
+					.then(function (pResponse)
+					{
+						// Store proxy response data on hidden properties
+						// (native XHR properties are read-only getters, cannot be overridden)
+						tmpSelf._retoldProxyResponse = pResponse;
+						tmpSelf._retoldProxyStatus = pResponse.status;
+						tmpSelf._retoldProxyStatusText = pResponse.statusText || '';
+						tmpSelf._retoldProxyResponseText = pResponse.body || '';
+						tmpSelf._retoldProxyReadyState = 4;
+
+						if (typeof tmpSelf.onreadystatechange === 'function')
+						{
+							tmpSelf.onreadystatechange();
+						}
+						if (typeof tmpSelf.onload === 'function')
+						{
+							tmpSelf.onload();
+						}
+						try { tmpSelf.dispatchEvent(new Event('load')); } catch (e) { /* ignore */ }
+					})
+					.catch(function (pError)
+					{
+						tmpSelf._retoldProxyStatus = 0;
+						tmpSelf._retoldProxyReadyState = 4;
+						if (typeof tmpSelf.onerror === 'function')
+						{
+							tmpSelf.onerror(pError);
+						}
+						try { tmpSelf.dispatchEvent(new Event('error')); } catch (e) { /* ignore */ }
+					});
+				return;
+			}
+			return tmpOriginalXHRSend.apply(this, arguments);
+		};
+
+		// Patch HTMLImageElement.prototype.src setter to rewrite URLs at assignment time.
+		// This is critical for libraries like OpenSeadragon that create Image objects
+		// off-DOM (new Image(); img.src = url) where MutationObserver can't intercept.
+		// _rewriteURL returns the original URL unchanged for non-matching patterns,
+		// and already-rewritten URLs won't match _shouldRewriteURL, so double-rewrite is safe.
+		var tmpOrigSrcDescriptor = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
+		if (tmpOrigSrcDescriptor && tmpOrigSrcDescriptor.set)
+		{
+			Object.defineProperty(HTMLImageElement.prototype, 'src', {
+				set: function (pValue)
+				{
+					tmpOrigSrcDescriptor.set.call(this, _rewriteURL(pValue));
+				},
+				get: tmpOrigSrcDescriptor.get,
+				enumerable: tmpOrigSrcDescriptor.enumerable,
+				configurable: true
+			});
+		}
 
 		// MutationObserver to rewrite src attributes on dynamically added elements
 		var tmpObserver = new MutationObserver(function (pMutations)
@@ -307,6 +567,17 @@
 		window.__RETOLD_BRIDGE_BLOCKING__ = false;
 	}
 
+	// ---- CORS-free fetch helper ----
+	// Uses Tauri proxy_fetch command when available, otherwise native fetch
+	function _corsFetch(pURL, pOptions)
+	{
+		if (window.__RETOLD_NATIVE__.isTauri)
+		{
+			return _proxyFetch(pURL, pOptions);
+		}
+		return window.fetch(pURL, pOptions);
+	}
+
 	// ---- Global connection functions (called from HTML onclick) ----
 	window.__retoldBridge_connect = function ()
 	{
@@ -326,8 +597,8 @@
 
 		_setStatus('Connecting...');
 
-		// Test the connection by fetching capabilities
-		fetch(tmpURL + '/api/media/capabilities')
+		// Test the connection by fetching capabilities (CORS-free)
+		_corsFetch(tmpURL + '/api/media/capabilities')
 			.then(function (pResponse)
 			{
 				if (!pResponse.ok) throw new Error('Server returned ' + pResponse.status);
@@ -354,7 +625,7 @@
 	{
 		_setStatus('Connecting...');
 
-		fetch(pURL + '/api/media/capabilities')
+		_corsFetch(pURL + '/api/media/capabilities')
 			.then(function (pResponse)
 			{
 				if (!pResponse.ok) throw new Error('Server returned ' + pResponse.status);
@@ -385,29 +656,42 @@
 		}
 	};
 
-	window.__retoldBridge_openLocalFolder = async function ()
+	window.__retoldBridge_openLocalFolder = function ()
 	{
 		if (!window.__RETOLD_NATIVE__.isTauri) return;
 
+		// Use the global __TAURI__ APIs (available via withGlobalTauri: true)
 		try
 		{
-			// Import Tauri APIs
-			var tmpDialog = await import('@tauri-apps/plugin-dialog');
-			var tmpCore = await import('@tauri-apps/api/core');
+			var tmpDialogAPI = window.__TAURI__ && window.__TAURI__.dialog;
+			if (!tmpDialogAPI || !tmpDialogAPI.open)
+			{
+				_setStatus('Dialog API not available', true);
+				return;
+			}
 
-			var tmpFolder = await tmpDialog.open({ directory: true, title: 'Select media folder' });
-			if (!tmpFolder) return;
+			tmpDialogAPI.open({ directory: true, title: 'Select media folder' })
+				.then(function (tmpFolder)
+				{
+					if (!tmpFolder) return;
 
-			_setStatus('Starting server...');
+					_setStatus('Starting server...');
 
-			var tmpResult = await tmpCore.invoke('start_server', { contentPath: tmpFolder });
-			var tmpURL = 'http://localhost:' + tmpResult.port;
-
-			_activateServer(tmpURL);
+					return _tauriInvoke('start_server', { contentPath: tmpFolder })
+						.then(function (tmpResult)
+						{
+							var tmpURL = 'http://localhost:' + tmpResult.port;
+							_activateServer(tmpURL);
+						});
+				})
+				.catch(function (pError)
+				{
+					_setStatus('Failed to start server: ' + pError, true);
+				});
 		}
 		catch (pError)
 		{
-			_setStatus('Failed to start server: ' + pError, true);
+			_setStatus('Failed to open folder dialog: ' + pError, true);
 		}
 	};
 
@@ -430,8 +714,11 @@
 	// ---- Application loading ----
 	function _loadApplication()
 	{
-		// If the app was already loaded (reconnecting), just reinitialize
-		if (typeof window.RetoldRemoteApplication !== 'undefined' && typeof Pict !== 'undefined')
+		// The app scripts load via HTML script tags regardless of the bridge state.
+		// If the app already initialized (made API calls with no server URL),
+		// the simplest fix is to reload so all API calls go through the proxy.
+		// Check for either the Pict global or the app instance.
+		if (typeof Pict !== 'undefined' || typeof pict !== 'undefined')
 		{
 			// Force reload — simplest way to reinitialize with new server URL
 			location.reload();
@@ -447,8 +734,13 @@
 	}
 
 	// ---- Media interception ----
+	var _mediaInterceptionInstalled = false;
 	function _installMediaInterception()
 	{
+		// Guard against double-patching (which creates duplicate buttons)
+		if (_mediaInterceptionInstalled) return;
+		_mediaInterceptionInstalled = true;
+
 		// Wait for the pict application to be fully initialized
 		var tmpCheckInterval = setInterval(function ()
 		{
@@ -472,7 +764,7 @@
 				var tmpNativeBtn = '<button class="retold-remote-video-action-btn" '
 					+ 'onclick="window.__retoldBridge_playNativeVideo()" '
 					+ 'title="Play with native player (full codec support)">'
-					+ '<span class="retold-remote-video-action-key">m</span>'
+					+ '<span class="retold-remote-video-action-key">n</span>'
 					+ 'Play with Native Player'
 					+ '</button>';
 
@@ -482,7 +774,7 @@
 				return tmpHTML;
 			};
 
-			// Listen for 'm' key in viewer mode to trigger native playback
+			// Listen for 'n' key in viewer mode to trigger native playback
 			var tmpOriginalHandleKey = null;
 			if (pict.providers['RetoldRemote-GalleryNavigation'] &&
 				pict.providers['RetoldRemote-GalleryNavigation']._keyHandlers &&
@@ -492,7 +784,7 @@
 				tmpOriginalHandleKey = tmpViewerHandler.handleKey;
 				tmpViewerHandler.handleKey = function (pEvent)
 				{
-					if (pEvent.key === 'm' && pict.AppData.RetoldRemote.CurrentViewerMediaType === 'video')
+					if (pEvent.key === 'n' && pict.AppData.RetoldRemote.CurrentViewerMediaType === 'video')
 					{
 						window.__retoldBridge_playNativeVideo();
 						return true;
@@ -506,7 +798,247 @@
 		}, 200);
 	}
 
-	window.__retoldBridge_playNativeVideo = async function ()
+	// ---- Native player overlay and keyboard controls ----
+	var _nativePlayerStatusInterval = null;
+
+	function _formatTime(pSeconds)
+	{
+		if (typeof pSeconds !== 'number' || isNaN(pSeconds)) return '--:--';
+		var tmpSeconds = Math.floor(pSeconds);
+		var tmpHours = Math.floor(tmpSeconds / 3600);
+		var tmpMinutes = Math.floor((tmpSeconds % 3600) / 60);
+		var tmpSecs = tmpSeconds % 60;
+		if (tmpHours > 0)
+		{
+			return tmpHours + ':' + (tmpMinutes < 10 ? '0' : '') + tmpMinutes + ':' + (tmpSecs < 10 ? '0' : '') + tmpSecs;
+		}
+		return tmpMinutes + ':' + (tmpSecs < 10 ? '0' : '') + tmpSecs;
+	}
+
+	function _showNativePlayerOverlay(pTitle)
+	{
+		// Remove any existing overlay
+		_hideNativePlayerOverlay();
+
+		var tmpOverlay = document.createElement('div');
+		tmpOverlay.id = 'RetoldBridge-NativePlayer';
+		tmpOverlay.className = 'retold-native-player-bar';
+		tmpOverlay.innerHTML =
+			'<div class="retold-native-player-inner">' +
+				'<div class="retold-native-player-title" id="RetoldBridge-NP-Title">' + (pTitle || 'Playing') + '</div>' +
+				'<div class="retold-native-player-status">' +
+					'<span id="RetoldBridge-NP-Status">Loading...</span>' +
+					'<span id="RetoldBridge-NP-Time"></span>' +
+				'</div>' +
+				'<div class="retold-native-player-keys">' +
+					'<span class="retold-native-player-key">Space</span> pause' +
+					' <span class="retold-native-player-sep">|</span> ' +
+					'<span class="retold-native-player-key">&larr;&rarr;</span> seek' +
+					' <span class="retold-native-player-sep">|</span> ' +
+					'<span class="retold-native-player-key">&uarr;&darr;</span> volume' +
+					' <span class="retold-native-player-sep">|</span> ' +
+					'<span class="retold-native-player-key">m</span> mute' +
+					' <span class="retold-native-player-sep">|</span> ' +
+					'<span class="retold-native-player-key">f</span> fullscreen' +
+					' <span class="retold-native-player-sep">|</span> ' +
+					'<span class="retold-native-player-key">[ ]</span> speed' +
+					' <span class="retold-native-player-sep">|</span> ' +
+					'<span class="retold-native-player-key">q</span> quit' +
+				'</div>' +
+			'</div>';
+
+		document.body.appendChild(tmpOverlay);
+
+		// Start polling mpv status
+		_nativePlayerStatusInterval = setInterval(_pollNativePlayerStatus, 500);
+	}
+
+	function _hideNativePlayerOverlay()
+	{
+		var tmpOverlay = document.getElementById('RetoldBridge-NativePlayer');
+		if (tmpOverlay)
+		{
+			tmpOverlay.classList.add('retold-native-player-bar-hiding');
+			setTimeout(function ()
+			{
+				if (tmpOverlay.parentNode) tmpOverlay.parentNode.removeChild(tmpOverlay);
+			}, 300);
+		}
+
+		if (_nativePlayerStatusInterval)
+		{
+			clearInterval(_nativePlayerStatusInterval);
+			_nativePlayerStatusInterval = null;
+		}
+	}
+
+	function _pollNativePlayerStatus()
+	{
+		if (!window.__RETOLD_NATIVE__.mpvPlaying) return;
+
+		_tauriInvoke('mpv_get_status', {})
+			.then(function (pStatus)
+			{
+				if (!pStatus.playing)
+				{
+					// mpv has exited
+					window.__RETOLD_NATIVE__.mpvPlaying = false;
+					_hideNativePlayerOverlay();
+					return;
+				}
+
+				var tmpStatusEl = document.getElementById('RetoldBridge-NP-Status');
+				var tmpTimeEl = document.getElementById('RetoldBridge-NP-Time');
+				if (!tmpStatusEl || !tmpTimeEl) return;
+
+				// Build status text
+				var tmpParts = [];
+				if (pStatus.paused === true)
+				{
+					tmpParts.push('Paused');
+				}
+				else
+				{
+					tmpParts.push('Playing');
+				}
+				if (typeof pStatus.volume === 'number')
+				{
+					tmpParts.push('Vol: ' + Math.round(pStatus.volume) + '%');
+				}
+				if (typeof pStatus.speed === 'number' && Math.abs(pStatus.speed - 1.0) > 0.01)
+				{
+					tmpParts.push(pStatus.speed.toFixed(1) + 'x');
+				}
+				tmpStatusEl.textContent = tmpParts.join('  ');
+
+				// Build time display
+				if (typeof pStatus.position === 'number' && typeof pStatus.duration === 'number')
+				{
+					tmpTimeEl.textContent = _formatTime(pStatus.position) + ' / ' + _formatTime(pStatus.duration);
+				}
+				else if (typeof pStatus.position === 'number')
+				{
+					tmpTimeEl.textContent = _formatTime(pStatus.position);
+				}
+				else
+				{
+					tmpTimeEl.textContent = '';
+				}
+			})
+			.catch(function ()
+			{
+				// Socket may not be ready yet or mpv exited
+			});
+	}
+
+	function _nativePlayerKeyHandler(pEvent)
+	{
+		if (!window.__RETOLD_NATIVE__.mpvPlaying) return;
+
+		var tmpCommand = null;
+
+		switch (pEvent.key)
+		{
+			case ' ':
+				tmpCommand = 'toggle-pause';
+				break;
+			case 'ArrowRight':
+				tmpCommand = pEvent.shiftKey ? 'seek-forward-large' : 'seek-forward';
+				break;
+			case 'ArrowLeft':
+				tmpCommand = pEvent.shiftKey ? 'seek-backward-large' : 'seek-backward';
+				break;
+			case 'ArrowUp':
+				tmpCommand = 'volume-up';
+				break;
+			case 'ArrowDown':
+				tmpCommand = 'volume-down';
+				break;
+			case 'm':
+				tmpCommand = 'toggle-mute';
+				break;
+			case 'f':
+				tmpCommand = 'toggle-fullscreen';
+				break;
+			case '[':
+				tmpCommand = 'speed-down';
+				break;
+			case ']':
+				tmpCommand = 'speed-up';
+				break;
+			case 'Backspace':
+				tmpCommand = 'speed-reset';
+				break;
+			case 'q':
+			case 'Escape':
+				tmpCommand = 'stop';
+				break;
+			default:
+				return; // Don't intercept unrecognized keys
+		}
+
+		// Prevent retold-remote's key handlers from firing
+		pEvent.preventDefault();
+		pEvent.stopPropagation();
+
+		_tauriInvoke('mpv_control', { command: tmpCommand })
+			.then(function ()
+			{
+				if (tmpCommand === 'stop')
+				{
+					window.__RETOLD_NATIVE__.mpvPlaying = false;
+					_hideNativePlayerOverlay();
+				}
+			})
+			.catch(function (pError)
+			{
+				console.error('[RetoldBridge] mpv control error:', pError);
+			});
+	}
+
+	// Register keyboard handler on capture phase (fires before retold-remote's handlers)
+	document.addEventListener('keydown', _nativePlayerKeyHandler, true);
+
+	// ---- Native playback launch functions ----
+
+	function _launchNativePlayer(pURL, pTitle)
+	{
+		if (window.__RETOLD_NATIVE__.isTauri)
+		{
+			_tauriInvoke('mpv_play', { url: pURL, title: pTitle })
+				.then(function ()
+				{
+					window.__RETOLD_NATIVE__.mpvPlaying = true;
+					_showNativePlayerOverlay(pTitle);
+				})
+				.catch(function (pError)
+				{
+					console.error('[RetoldBridge] Native playback failed:', pError);
+					// Fall back to browser playback for video
+					if (typeof pict !== 'undefined' && pict.views['RetoldRemote-MediaViewer'] && pict.views['RetoldRemote-MediaViewer'].playVideo)
+					{
+						pict.views['RetoldRemote-MediaViewer'].playVideo();
+					}
+				});
+		}
+		else if (window.__RETOLD_NATIVE__.isCapacitor)
+		{
+			try
+			{
+				var tmpNativePlayer = window.RetoldNativePlayer;
+				if (tmpNativePlayer)
+				{
+					tmpNativePlayer.playVideo({ url: pURL, title: pTitle });
+				}
+			}
+			catch (pError)
+			{
+				console.error('[RetoldBridge] Native playback failed:', pError);
+			}
+		}
+	}
+
+	window.__retoldBridge_playNativeVideo = function ()
 	{
 		if (typeof pict === 'undefined') return;
 
@@ -519,39 +1051,10 @@
 		var tmpFullURL = _rewriteURL(tmpContentURL);
 		var tmpFileName = tmpFilePath.replace(/^.*\//, '');
 
-		if (window.__RETOLD_NATIVE__.isTauri)
-		{
-			try
-			{
-				var tmpCore = await import('@tauri-apps/api/core');
-				await tmpCore.invoke('mpv_play', { url: tmpFullURL, title: tmpFileName });
-			}
-			catch (pError)
-			{
-				console.error('Native video playback failed:', pError);
-				// Fall back to browser playback
-				pict.views['RetoldRemote-MediaViewer'].playVideo();
-			}
-		}
-		else if (window.__RETOLD_NATIVE__.isCapacitor)
-		{
-			try
-			{
-				var tmpNativePlayer = window.RetoldNativePlayer;
-				if (tmpNativePlayer)
-				{
-					await tmpNativePlayer.playVideo({ url: tmpFullURL, title: tmpFileName });
-				}
-			}
-			catch (pError)
-			{
-				console.error('Native video playback failed:', pError);
-				pict.views['RetoldRemote-MediaViewer'].playVideo();
-			}
-		}
+		_launchNativePlayer(tmpFullURL, tmpFileName);
 	};
 
-	window.__retoldBridge_playNativeAudio = async function ()
+	window.__retoldBridge_playNativeAudio = function ()
 	{
 		if (typeof pict === 'undefined') return;
 
@@ -564,51 +1067,30 @@
 		var tmpFullURL = _rewriteURL(tmpContentURL);
 		var tmpFileName = tmpFilePath.replace(/^.*\//, '');
 
-		if (window.__RETOLD_NATIVE__.isTauri)
-		{
-			try
-			{
-				var tmpCore = await import('@tauri-apps/api/core');
-				await tmpCore.invoke('mpv_play', { url: tmpFullURL, title: tmpFileName });
-			}
-			catch (pError)
-			{
-				console.error('Native audio playback failed:', pError);
-			}
-		}
-		else if (window.__RETOLD_NATIVE__.isCapacitor)
-		{
-			try
-			{
-				var tmpNativePlayer = window.RetoldNativePlayer;
-				if (tmpNativePlayer)
-				{
-					await tmpNativePlayer.playAudio({ url: tmpFullURL, title: tmpFileName });
-				}
-			}
-			catch (pError)
-			{
-				console.error('Native audio playback failed:', pError);
-			}
-		}
+		_launchNativePlayer(tmpFullURL, tmpFileName);
 	};
 
 	// ---- Initialization ----
-	function _init()
+
+	// CRITICAL: Install URL rewriting and set server URL IMMEDIATELY
+	// (not deferred to DOMContentLoaded) so that when retold-remote's scripts
+	// execute and call fetchCapabilities() during parsing, the patched fetch()
+	// and __RETOLD_SERVER_URL__ are already in place.
+	_installURLRewriting();
+
+	var _savedURL = _getSavedServerURL();
+	if (_savedURL)
 	{
-		// Install URL rewriting immediately (before any API calls happen)
-		_installURLRewriting();
+		window.__RETOLD_SERVER_URL__ = _savedURL;
+	}
 
-		// Check if we have a saved server URL
-		var tmpSavedURL = _getSavedServerURL();
-
-		if (tmpSavedURL)
+	// DOM-dependent initialization (connection screen, server verification)
+	function _initDOM()
+	{
+		if (_savedURL)
 		{
-			// Try to connect to saved server silently
-			window.__RETOLD_SERVER_URL__ = tmpSavedURL;
-
-			// Verify it's still reachable (non-blocking)
-			fetch(tmpSavedURL + '/api/media/capabilities')
+			// Verify the saved server is still reachable (non-blocking, CORS-free)
+			_corsFetch(_savedURL + '/api/media/capabilities')
 				.then(function (pResponse)
 				{
 					if (!pResponse.ok) throw new Error('unreachable');
@@ -616,8 +1098,7 @@
 				})
 				.then(function ()
 				{
-					// Server is up — install media interception
-					_installMediaInterception();
+					// Server is up — all good
 				})
 				.catch(function ()
 				{
@@ -629,32 +1110,20 @@
 		else
 		{
 			// No saved server — show connection screen
-			// Wait for body to exist
-			function _waitForBody()
-			{
-				if (document.body)
-				{
-					_showConnectionScreen();
-				}
-				else
-				{
-					setTimeout(_waitForBody, 50);
-				}
-			}
-			_waitForBody();
+			_showConnectionScreen();
 		}
 
-		// Always install media interception (it waits for pict to load)
+		// Install media interception (it waits for pict to load via setInterval)
 		_installMediaInterception();
 	}
 
-	// Run init when DOM is ready (or immediately if already ready)
+	// Run DOM init when DOM is ready (or immediately if already ready)
 	if (document.readyState === 'loading')
 	{
-		document.addEventListener('DOMContentLoaded', _init);
+		document.addEventListener('DOMContentLoaded', _initDOM);
 	}
 	else
 	{
-		_init();
+		_initDOM();
 	}
 })();

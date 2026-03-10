@@ -39,27 +39,7 @@
 	},
 	"plugins": {
 		"shell": {
-			"open": true,
-			"scope": [
-				{
-					"name": "run-retold-remote",
-					"cmd": "retold-remote",
-					"args": true,
-					"sidecar": false
-				},
-				{
-					"name": "run-mpv",
-					"cmd": "mpv",
-					"args": true,
-					"sidecar": false
-				},
-				{
-					"name": "run-node",
-					"cmd": "node",
-					"args": true,
-					"sidecar": false
-				}
-			]
+			"open": true
 		}
 	}
 }

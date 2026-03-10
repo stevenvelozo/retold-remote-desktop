@@ -2,11 +2,65 @@ mod server_manager;
 mod mpv_controller;
 
 use std::sync::Mutex;
+use std::collections::HashMap;
 use tauri::{
 	menu::{MenuItem, MenuBuilder, SubmenuBuilder},
 	tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
 	Manager,
 };
+
+/// HTTP proxy command — bypasses CORS by making requests from Rust.
+/// The webview can't make cross-origin requests to the retold-remote server
+/// because it doesn't send CORS headers. This command proxies those requests.
+#[tauri::command]
+async fn proxy_fetch(
+	url: String,
+	method: Option<String>,
+	body: Option<String>,
+	headers: Option<HashMap<String, String>>,
+) -> Result<serde_json::Value, String>
+{
+	let client = reqwest::Client::new();
+	let http_method = match method.as_deref().unwrap_or("GET")
+	{
+		"POST" => reqwest::Method::POST,
+		"PUT" => reqwest::Method::PUT,
+		"DELETE" => reqwest::Method::DELETE,
+		"PATCH" => reqwest::Method::PATCH,
+		"HEAD" => reqwest::Method::HEAD,
+		"OPTIONS" => reqwest::Method::OPTIONS,
+		_ => reqwest::Method::GET,
+	};
+
+	let mut request = client.request(http_method, &url);
+
+	if let Some(hdrs) = headers
+	{
+		for (key, value) in hdrs
+		{
+			request = request.header(&key, &value);
+		}
+	}
+
+	if let Some(body_str) = body
+	{
+		request = request.body(body_str);
+	}
+
+	let response = request.send().await.map_err(|e| e.to_string())?;
+	let status = response.status().as_u16();
+	let response_headers: HashMap<String, String> = response.headers()
+		.iter()
+		.map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+		.collect();
+	let response_body = response.text().await.map_err(|e| e.to_string())?;
+
+	Ok(serde_json::json!({
+		"status": status,
+		"headers": response_headers,
+		"body": response_body
+	}))
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run()
@@ -22,6 +76,7 @@ pub fn run()
 		.manage(Mutex::new(mpv_controller::MpvState::default()))
 		// ---- IPC command handlers ----
 		.invoke_handler(tauri::generate_handler![
+			proxy_fetch,
 			server_manager::start_server,
 			server_manager::stop_server,
 			server_manager::get_server_status,
