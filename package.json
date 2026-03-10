@@ -1,0 +1,27 @@
+{
+	"name": "retold-remote-desktop",
+	"version": "0.0.1",
+	"description": "Native desktop application for retold-remote media browser (Tauri 2.0)",
+	"license": "MIT",
+	"author": "Steven Velozo <steven@velozo.com>",
+	"scripts": {
+		"copy-web-app": "bash scripts/copy-web-app.sh",
+		"tauri": "tauri",
+		"dev": "tauri dev",
+		"build": "tauri build",
+		"build-mac": "tauri build --target universal-apple-darwin",
+		"build-win": "tauri build --bundles msi",
+		"build-linux": "tauri build --bundles deb appimage"
+	},
+	"dependencies": {
+		"@tauri-apps/api": "^2.0.0",
+		"@tauri-apps/plugin-dialog": "^2.0.0",
+		"@tauri-apps/plugin-shell": "^2.0.0",
+		"@tauri-apps/plugin-store": "^2.0.0",
+		"@tauri-apps/plugin-window-state": "^2.0.0",
+		"tauri-plugin-libmpv-api": "^0.3.0"
+	},
+	"devDependencies": {
+		"@tauri-apps/cli": "^2.0.0"
+	}
+}

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+	<title>Retold Remote</title>
+	<style id="PICT-CSS"></style>
+	<link rel="stylesheet" href="css/retold-remote.css">
+	<!-- Native bridge styles (connection screen) -->
+	<link rel="stylesheet" href="retold-native-bridge.css">
+</head>
+<body>
+	<div id="ContentEditor-Application-Container"></div>
+
+	<!-- Native bridge (must load before the app — handles URL rewriting and connection screen) -->
+	<script src="retold-native-bridge.js"></script>
+	<!-- Pict framework -->
+	<script src="js/pict.min.js"></script>
+	<!-- CodeJar (code editor engine for pict-section-code) -->
+	<script src="codejar.js"></script>
+	<!-- JSZip (required by epub.js) -->
+	<script src="js/jszip.min.js"></script>
+	<!-- epub.js ebook renderer -->
+	<script src="js/epub.min.js"></script>
+	<!-- Retold Remote application bundle -->
+	<script src="retold-remote.min.js"></script>
+	<script>
+		Pict.safeLoadPictApplication(RetoldRemoteApplication, 2);
+	</script>
+</body>
+</html>
