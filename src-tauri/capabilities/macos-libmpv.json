@@ -1,0 +1,9 @@
+{
+	"identifier": "macos-libmpv",
+	"description": "Embedded libmpv support (macOS only)",
+	"windows": ["main"],
+	"platforms": ["macOS"],
+	"permissions": [
+		"libmpv:default"
+	]
+}
