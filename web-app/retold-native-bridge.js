@@ -283,6 +283,27 @@
 		return pURL;
 	}
 
+	// Rewrite Tauri custom protocol URLs (e.g. https://tauri.localhost/content/...)
+	// back to the real server URL for external use (VLC, browser, etc.).
+	// This is the single place to inject auth tokens in the future.
+	function _rewriteExternalURL(pURL)
+	{
+		if (typeof pURL !== 'string') return pURL;
+		if (!window.__RETOLD_SERVER_URL__) return pURL;
+
+		// Match Tauri custom protocol URLs
+		var tmpMatch = pURL.match(/^https?:\/\/tauri\.localhost(.*)$/);
+		if (tmpMatch)
+		{
+			var tmpServerURL = window.__RETOLD_SERVER_URL__ + tmpMatch[1];
+			// Future: append auth token here if needed
+			// e.g. tmpServerURL += (tmpServerURL.indexOf('?') >= 0 ? '&' : '?') + 'token=' + encodeURIComponent(authToken);
+			return tmpServerURL;
+		}
+
+		return pURL;
+	}
+
 	function _installURLRewriting()
 	{
 		// Patch fetch() — use Tauri proxy for server requests (bypasses CORS)
@@ -423,6 +444,31 @@
 				enumerable: tmpOrigSrcDescriptor.enumerable,
 				configurable: true
 			});
+		}
+
+		// Patch window.open() — rewrite Tauri protocol URLs for external apps (VLC, browser, etc.)
+		var tmpOriginalWindowOpen = window.open;
+		window.open = function (pURL, pTarget, pFeatures)
+		{
+			if (typeof pURL === 'string')
+			{
+				pURL = _rewriteExternalURL(pURL);
+			}
+			return tmpOriginalWindowOpen.call(this, pURL, pTarget, pFeatures);
+		};
+
+		// Patch Tauri shell.open — rewrite Tauri protocol URLs before handing to the OS
+		if (window.__TAURI__ && window.__TAURI__.shell)
+		{
+			var tmpOriginalShellOpen = window.__TAURI__.shell.open;
+			window.__TAURI__.shell.open = function (pURL, pOpenWith)
+			{
+				if (typeof pURL === 'string')
+				{
+					pURL = _rewriteExternalURL(pURL);
+				}
+				return tmpOriginalShellOpen.call(this, pURL, pOpenWith);
+			};
 		}
 
 		// MutationObserver to rewrite src attributes on dynamically added elements
