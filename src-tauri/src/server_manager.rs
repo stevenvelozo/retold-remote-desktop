@@ -145,9 +145,18 @@ pub async fn stop_server(
 		// Kill the child process if we have a PID
 		if let Some(pid) = server.child_pid
 		{
-			let _ = std::process::Command::new("kill")
-				.arg(pid.to_string())
-				.output();
+			#[cfg(unix)]
+			{
+				let _ = std::process::Command::new("kill")
+					.arg(pid.to_string())
+					.output();
+			}
+			#[cfg(windows)]
+			{
+				let _ = std::process::Command::new("taskkill")
+					.args(["/PID", &pid.to_string(), "/F"])
+					.output();
+			}
 		}
 
 		server.running = false;

@@ -29,7 +29,8 @@ impl Default for MpvState
 	}
 }
 
-/// Kill a process by PID using the system kill command.
+/// Kill a process by PID.
+#[cfg(unix)]
 fn kill_process(pid: u32)
 {
 	let _ = std::process::Command::new("kill")
@@ -37,34 +38,69 @@ fn kill_process(pid: u32)
 		.output();
 }
 
-/// Remove a Unix socket file if it exists.
-fn remove_socket_file(path: &str)
+#[cfg(windows)]
+fn kill_process(pid: u32)
 {
-	let _ = std::fs::remove_file(path);
+	let _ = std::process::Command::new("taskkill")
+		.args(["/PID", &pid.to_string(), "/F"])
+		.output();
 }
 
-/// Send a JSON command to mpv via its IPC Unix socket and return the response.
+/// Remove a socket file if it exists (Unix only; named pipes clean up automatically on Windows).
+fn remove_socket_file(path: &str)
+{
+	#[cfg(unix)]
+	{
+		let _ = std::fs::remove_file(path);
+	}
+	#[cfg(windows)]
+	{
+		let _ = path;
+	}
+}
+
+/// Send a JSON command to mpv via its IPC socket and return the response.
 ///
 /// mpv's JSON IPC protocol sends newline-terminated JSON objects.
 /// Each command is `{ "command": [...] }\n` and mpv replies with
 /// `{ "error": "success", "data": ... }\n`.
+///
+/// On Unix this connects via a Unix domain socket; on Windows via a named pipe.
 fn send_mpv_ipc(socket_path: &str, command: &serde_json::Value) -> Result<serde_json::Value, String>
 {
-	use std::os::unix::net::UnixStream;
 	use std::time::Duration;
 
-	let timeout = Duration::from_secs(2);
+	// Platform-specific connection
+	#[cfg(unix)]
+	let stream = {
+		use std::os::unix::net::UnixStream;
+		let timeout = Duration::from_secs(2);
+		let s = UnixStream::connect(socket_path)
+			.or_else(|_| {
+				std::thread::sleep(Duration::from_millis(200));
+				UnixStream::connect(socket_path)
+			})
+			.map_err(|e| format!("Failed to connect to mpv socket: {}", e))?;
+		s.set_read_timeout(Some(timeout)).map_err(|e| e.to_string())?;
+		s.set_write_timeout(Some(timeout)).map_err(|e| e.to_string())?;
+		s
+	};
 
-	// Try connecting (with one retry for slow startup)
-	let stream = UnixStream::connect(socket_path)
-		.or_else(|_| {
-			std::thread::sleep(Duration::from_millis(200));
-			UnixStream::connect(socket_path)
-		})
-		.map_err(|e| format!("Failed to connect to mpv socket: {}", e))?;
-
-	stream.set_read_timeout(Some(timeout)).map_err(|e| e.to_string())?;
-	stream.set_write_timeout(Some(timeout)).map_err(|e| e.to_string())?;
+	#[cfg(windows)]
+	let stream = {
+		std::fs::OpenOptions::new()
+			.read(true)
+			.write(true)
+			.open(socket_path)
+			.or_else(|_| {
+				std::thread::sleep(Duration::from_millis(200));
+				std::fs::OpenOptions::new()
+					.read(true)
+					.write(true)
+					.open(socket_path)
+			})
+			.map_err(|e| format!("Failed to connect to mpv pipe: {}", e))?
+	};
 
 	let mut writer = stream.try_clone().map_err(|e| e.to_string())?;
 
@@ -160,8 +196,11 @@ pub async fn mpv_play(
 		}
 	}
 
-	// Generate unique socket path
+	// Generate unique IPC path (Unix socket on Unix, named pipe on Windows)
+	#[cfg(unix)]
 	let socket_path = format!("/tmp/retold-mpv-{}.sock", rand::random::<u32>());
+	#[cfg(windows)]
+	let socket_path = format!(r"\\.\pipe\retold-mpv-{}", rand::random::<u32>());
 	// Clean up any stale socket
 	remove_socket_file(&socket_path);
 
