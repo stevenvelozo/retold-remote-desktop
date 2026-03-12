@@ -12,7 +12,51 @@ permissions:
   contents: write
 
 jobs:
+  # Build web assets once on Linux (quack/gulp has path issues on Windows)
+  web-assets:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Clone retold-remote
+        uses: actions/checkout@v4
+        with:
+          repository: stevenvelozo/retold-remote
+          path: _retold-remote
+
+      - name: Build retold-remote web assets
+        working-directory: _retold-remote
+        run: |
+          npm install
+          npx quack build
+
+      - name: Copy web assets
+        run: |
+          mkdir -p web-app/js web-app/css web-app/docs
+          cp _retold-remote/web-application/retold-remote.js web-app/ || true
+          cp _retold-remote/web-application/retold-remote.min.js web-app/ || true
+          cp _retold-remote/web-application/retold-remote.js.map web-app/ 2>/dev/null || true
+          cp _retold-remote/web-application/retold-remote.min.js.map web-app/ 2>/dev/null || true
+          cp _retold-remote/web-application/codejar.js web-app/ || true
+          cp _retold-remote/web-application/js/* web-app/js/ || true
+          cp _retold-remote/web-application/css/* web-app/css/ || true
+          cp _retold-remote/web-application/docs/* web-app/docs/ 2>/dev/null || true
+          cp _retold-remote/web-application/docs.html web-app/ 2>/dev/null || true
+
+      - name: Upload web assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-assets
+          path: web-app/
+
   build:
+    needs: web-assets
     strategy:
       fail-fast: false
       matrix:
@@ -32,6 +76,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Download web assets
+        uses: actions/download-artifact@v4
+        with:
+          name: web-assets
+          path: web-app/
 
       - name: Install system dependencies (Linux)
         if: matrix.platform == 'ubuntu-22.04'
@@ -56,34 +106,6 @@ jobs:
 
       - name: Install npm dependencies
         run: npm install
-
-      # The web-app assets (JS bundles, CSS, libs) come from retold-remote.
-      # Clone it, build it, then copy the assets into web-app/.
-      - name: Clone retold-remote
-        uses: actions/checkout@v4
-        with:
-          repository: stevenvelozo/retold-remote
-          path: _retold-remote
-
-      - name: Build retold-remote web assets
-        working-directory: _retold-remote
-        run: |
-          npm install
-          npx quack build
-
-      - name: Copy web assets
-        shell: bash
-        run: |
-          mkdir -p web-app/js web-app/css web-app/docs
-          cp _retold-remote/web-application/retold-remote.js web-app/ || true
-          cp _retold-remote/web-application/retold-remote.min.js web-app/ || true
-          cp _retold-remote/web-application/retold-remote.js.map web-app/ 2>/dev/null || true
-          cp _retold-remote/web-application/retold-remote.min.js.map web-app/ 2>/dev/null || true
-          cp _retold-remote/web-application/codejar.js web-app/ || true
-          cp _retold-remote/web-application/js/* web-app/js/ || true
-          cp _retold-remote/web-application/css/* web-app/css/ || true
-          cp _retold-remote/web-application/docs/* web-app/docs/ 2>/dev/null || true
-          cp _retold-remote/web-application/docs.html web-app/ 2>/dev/null || true
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
