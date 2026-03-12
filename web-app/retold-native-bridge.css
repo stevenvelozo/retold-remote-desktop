@@ -1,14 +1,5 @@
 /* Retold Remote Native Bridge — Connection Screen Styles */
 
-/* Default opaque background — the Tauri window has transparent: true
-   for embedded libmpv video support, but without a background color
-   WebView2 on Windows renders a see-through window and passes
-   clicks through to whatever is behind it. */
-html, body
-{
-	background: #1a1a2e;
-}
-
 .retold-bridge-overlay
 {
 	position: fixed;

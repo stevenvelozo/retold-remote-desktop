@@ -65,13 +65,19 @@ async fn proxy_fetch(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run()
 {
-	tauri::Builder::default()
+	let builder = tauri::Builder::default()
 		// ---- Plugins ----
 		.plugin(tauri_plugin_window_state::Builder::default().build())
 		.plugin(tauri_plugin_dialog::init())
 		.plugin(tauri_plugin_shell::init())
-		.plugin(tauri_plugin_store::Builder::default().build())
-		.plugin(tauri_plugin_libmpv::init())
+		.plugin(tauri_plugin_store::Builder::default().build());
+
+	// libmpv plugin is macOS-only (renders video behind transparent webview).
+	// On Windows, initializing it interferes with WebView2 input handling.
+	#[cfg(target_os = "macos")]
+	let builder = builder.plugin(tauri_plugin_libmpv::init());
+
+	builder
 		// ---- Managed state ----
 		.manage(Mutex::new(server_manager::ServerState::default()))
 		.manage(Mutex::new(mpv_controller::MpvState::default()))
@@ -204,6 +210,7 @@ pub fn run()
 			if let Some(window) = app.get_webview_window("main")
 			{
 				let _ = window.show();
+				let _ = window.set_focus();
 			}
 
 			Ok(())

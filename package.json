@@ -7,9 +7,9 @@
 	"scripts": {
 		"copy-web-app": "bash scripts/copy-web-app.sh",
 		"tauri": "tauri",
-		"dev": "tauri dev",
+		"dev": "tauri dev -c '{\"app\":{\"windows\":[{\"label\":\"main\",\"transparent\":true}]}}'",
 		"build": "tauri build",
-		"build-mac": "tauri build --target universal-apple-darwin",
+		"build-mac": "tauri build --target universal-apple-darwin -c '{\"app\":{\"windows\":[{\"label\":\"main\",\"transparent\":true}]}}'",
 		"build-win": "tauri build --bundles msi",
 		"build-linux": "tauri build --bundles deb appimage"
 	},
