@@ -13,7 +13,7 @@
 	align-items: center;
 	justify-content: center;
 	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-	color: #e0e0e0;
+	color: var(--theme-color-border-default, #e0e0e0);
 }
 
 .retold-bridge-dialog
@@ -59,7 +59,7 @@
 	border: 1px solid #0f3460;
 	border-radius: 6px;
 	background: #1a1a2e;
-	color: #e0e0e0;
+	color: var(--theme-color-border-default, #e0e0e0);
 	font-size: 14px;
 	font-family: inherit;
 	outline: none;
@@ -80,7 +80,7 @@
 {
 	padding: 10px 20px;
 	background: #e94560;
-	color: #fff;
+	color: var(--theme-color-background-panel, #fff);
 	border: none;
 	border-radius: 6px;
 	font-size: 14px;
@@ -153,7 +153,7 @@
 {
 	background: #0f3460;
 	border-color: #e94560;
-	color: #e0e0e0;
+	color: var(--theme-color-border-default, #e0e0e0);
 }
 
 .retold-bridge-server-remove
@@ -219,7 +219,7 @@
 .retold-bridge-local-btn:hover
 {
 	background: #1a4a8e;
-	color: #e0e0e0;
+	color: var(--theme-color-border-default, #e0e0e0);
 }
 
 /* ---- Native Player Overlay Bar ---- */
@@ -236,7 +236,7 @@
 	-webkit-backdrop-filter: blur(8px);
 	border-top: 1px solid rgba(233, 69, 96, 0.4);
 	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-	color: #e0e0e0;
+	color: var(--theme-color-border-default, #e0e0e0);
 	animation: retold-np-slide-in 0.3s ease-out;
 }
 
@@ -350,7 +350,7 @@ body.retold-embedded-video-active .RetoldRemote-MediaViewer-Container
 	-webkit-backdrop-filter: blur(12px);
 	border-top: 1px solid rgba(233, 69, 96, 0.3);
 	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-	color: #e0e0e0;
+	color: var(--theme-color-border-default, #e0e0e0);
 	animation: retold-np-slide-in 0.3s ease-out;
 	transition: opacity 0.4s ease, transform 0.4s ease;
 }
