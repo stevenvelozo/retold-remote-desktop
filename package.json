@@ -1,6 +1,6 @@
 {
 	"name": "retold-remote-desktop",
-	"version": "0.0.2",
+	"version": "1.0.0",
 	"description": "Native desktop application for retold-remote media browser (Tauri 2.0)",
 	"license": "MIT",
 	"author": "Steven Velozo <steven@velozo.com>",
