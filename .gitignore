@@ -11,3 +11,4 @@ web-app/css/docuserve.css
 web-app/docs/
 web-app/docs.html
 .DS_Store
+package-lock.json
