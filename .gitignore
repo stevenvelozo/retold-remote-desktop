@@ -12,3 +12,4 @@ web-app/docs/
 web-app/docs.html
 .DS_Store
 package-lock.json
+dist/indoctrinate_content_staging/
