@@ -1,5 +1,5 @@
 {
-	"Generated": "2026-05-22T05:37:03.834Z",
+	"Generated": "2026-05-30T22:31:46.761Z",
 	"Mode": "module",
 	"GitHubOrg": "stevenvelozo",
 	"DefaultBranch": "master",
@@ -9,13 +9,65 @@
 		"Group": "",
 		"Branch": "master",
 		"HasDocs": true,
-		"HasCover": false,
-		"Sidebar": [],
+		"HasCover": true,
+		"Sidebar": [
+			{
+				"Title": "Introduction",
+				"Children": [
+					{
+						"Title": "Overview",
+						"Path": "#/page/overview.md"
+					},
+					{
+						"Title": "Quickstart",
+						"Path": "#/page/quickstart.md"
+					}
+				]
+			},
+			{
+				"Title": "Design",
+				"Children": [
+					{
+						"Title": "Architecture",
+						"Path": "#/page/architecture.md"
+					}
+				]
+			},
+			{
+				"Title": "Shipping",
+				"Children": [
+					{
+						"Title": "Desktop Build & Package",
+						"Path": "#/page/desktop-build-and-package.md"
+					}
+				]
+			},
+			{
+				"Title": "Ecosystem",
+				"Children": [
+					{
+						"Title": "retold-remote",
+						"Path": "https://fable-retold.github.io/retold-remote/README.md"
+					},
+					{
+						"Title": "retold-remote-ios",
+						"Path": "https://fable-retold.github.io/retold-remote-ios/README.md"
+					}
+				]
+			}
+		],
 		"DocFiles": [
 			".nojekyll",
+			"README.md",
 			"_brand.json",
+			"_cover.md",
+			"_sidebar.md",
 			"_version.json",
+			"architecture.md",
+			"desktop-build-and-package.md",
 			"index.html",
+			"overview.md",
+			"quickstart.md",
 			"retold-catalog.json",
 			"retold-keyword-index.json"
 		]

@@ -2,6 +2,6 @@
 	"Name": "retold-remote-desktop",
 	"Version": "1.0.0",
 	"Description": "Native desktop application for retold-remote media browser (Tauri 2.0)",
-	"GeneratedAt": "2026-05-22T05:37:03.989Z",
-	"GitCommit": "5c3985e"
+	"GeneratedAt": "2026-05-30T22:31:47.018Z",
+	"GitCommit": "66c42e8"
 }
