@@ -2945,7 +2945,7 @@ dependencies = [
 
 [[package]]
 name = "retold-remote-desktop"
-version = "0.0.1"
+version = "1.0.0"
 dependencies = [
  "rand 0.8.5",
  "reqwest 0.12.28",

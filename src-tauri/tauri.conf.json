@@ -1,6 +1,6 @@
 {
 	"productName": "Retold Remote",
-	"version": "0.0.1",
+	"version": "1.0.0",
 	"identifier": "com.retold.remote-desktop",
 	"build": {
 		"frontendDist": "../web-app"

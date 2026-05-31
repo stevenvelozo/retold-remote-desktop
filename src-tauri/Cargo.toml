@@ -1,6 +1,6 @@
 [package]
 name = "retold-remote-desktop"
-version = "0.0.1"
+version = "1.0.0"
 description = "Native desktop application for retold-remote media browser"
 authors = ["Steven Velozo"]
 license = "MIT"
