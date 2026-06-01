@@ -1,5 +1,7 @@
 # retold-remote-desktop
 
+> **[Read the retold-remote-desktop Documentation](https://stevenvelozo.github.io/retold-remote-desktop/)**
+
 > **[Read the Retold-Remote-Desktop Documentation](https://fable-retold.github.io/retold-remote-desktop/)** - interactive docs with the full build and architecture reference.
 
 > A native desktop application for the Retold Remote media browser.
