@@ -1,6 +1,6 @@
 # retold-remote-desktop
 
-> **[&#9654; Read the Retold-Remote-Desktop Documentation](https://fable-retold.github.io/retold-remote-desktop/)** &mdash; interactive docs with the full build and architecture reference.
+> **[Read the Retold-Remote-Desktop Documentation](https://fable-retold.github.io/retold-remote-desktop/)** - interactive docs with the full build and architecture reference.
 
 > A native desktop application for the Retold Remote media browser.
 
