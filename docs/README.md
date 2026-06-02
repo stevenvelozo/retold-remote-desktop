@@ -8,25 +8,8 @@ Like the rest of the Retold suite, it treats the server as the source of truth. 
 
 ## Where It Fits
 
-```mermaid
-flowchart LR
-    subgraph Desktop["retold-remote-desktop (Tauri)"]
-        direction TB
-        WEB["retold-remote Web App<br/>(WebView)"]
-        BRIDGE["Native Bridge JS"]
-        RUST["Rust Shell<br/>(Tauri commands)"]
-        WEB --- BRIDGE --- RUST
-    end
-
-    Server["retold-remote (Node.js)<br/>Orator API + content"]
-
-    Desktop -->|HTTP via proxy_fetch| Server
-    Desktop -.->|spawns local server| Server
-    RUST -.->|launches| MPV["mpv player"]
-
-    style Desktop fill:#e3f2fd,stroke:#42a5f5,color:#333
-    style Server fill:#fff3e0,stroke:#ffa726,color:#333
-```
+<!-- bespoke diagram: edit diagrams/where-it-fits.mmd or .hints.json, then: npx pict-renderer-graph build modules/apps/retold-remote-desktop/docs -->
+![Where It Fits](diagrams/where-it-fits.svg)
 
 The app talks to a `retold-remote` server over plain HTTP, but routes those requests through a Rust `proxy_fetch` command so the WebView never hits a CORS wall. Everything authoritative -- the media index, content streaming, thumbnails -- lives on the server.
 

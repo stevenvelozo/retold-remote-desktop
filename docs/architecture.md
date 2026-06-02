@@ -12,40 +12,8 @@ The web app is never modified. Everything native is layered on by the bridge (in
 
 ## Component Diagram
 
-```mermaid
-flowchart TB
-    subgraph Desktop["retold-remote-desktop (Tauri WebView)"]
-        direction TB
-        subgraph Frontend["web-app/"]
-            INDEX["index.html"]
-            BRIDGE["retold-native-bridge.js"]
-            APP["retold-remote.min.js<br/>(Pict app)"]
-            INDEX --> BRIDGE
-            INDEX --> APP
-        end
-        subgraph Shell["src-tauri/ (Rust)"]
-            PROXY["proxy_fetch"]
-            SRV["server_manager<br/>start/stop/status"]
-            MPV["mpv_controller<br/>play/control/status"]
-            TRAY["Tray + Menu"]
-            PLUGINS["Plugins:<br/>window-state, dialog,<br/>shell, store, libmpv*"]
-        end
-        BRIDGE -- "invoke()" --> PROXY
-        BRIDGE -- "invoke()" --> SRV
-        BRIDGE -- "invoke()" --> MPV
-        TRAY -- "window.eval()" --> BRIDGE
-    end
-
-    SERVER["retold-remote server"]
-    MPVBIN["mpv binary"]
-
-    PROXY -- "HTTP (reqwest)" --> SERVER
-    SRV -. "spawns retold-remote serve" .-> SERVER
-    MPV -. "spawns / IPC" .-> MPVBIN
-
-    style Frontend fill:#e3f2fd,stroke:#42a5f5,color:#333
-    style Shell fill:#fff3e0,stroke:#ffa726,color:#333
-```
+<!-- bespoke diagram: edit diagrams/component-diagram.mmd or .hints.json, then: npx pict-renderer-graph build modules/apps/retold-remote-desktop/docs -->
+![Component Diagram](diagrams/component-diagram.svg)
 
 \* libmpv is a macOS-only plugin.
 
@@ -124,14 +92,8 @@ The **system tray** offers Show Window and Quit. The **application menu** has Fi
 
 When you trigger native playback, the bridge picks the best available path:
 
-```mermaid
-flowchart TB
-    START["Play with Native Player"] --> T1{"Embedded libmpv<br/>available? (macOS)"}
-    T1 -- "yes" --> EMBED["Tier 1: embedded libmpv<br/>renders behind transparent WebView<br/>(plugin:libmpv commands)"]
-    T1 -- "no" --> T2{"External mpv<br/>launches?"}
-    T2 -- "yes" --> EXT["Tier 2: external mpv process<br/>(mpv_play + JSON IPC)"]
-    T2 -- "no" --> T3["Tier 3: in-browser player<br/>(retold-remote MediaViewer)"]
-```
+<!-- bespoke diagram: edit diagrams/native-video-three-tier-playback.mmd or .hints.json, then: npx pict-renderer-graph build modules/apps/retold-remote-desktop/docs -->
+![Native Video: Three-Tier Playback](diagrams/native-video-three-tier-playback.svg)
 
 1. **Embedded libmpv** (macOS) -- the bridge probes `plugin:libmpv|init` at startup. If it succeeds, video is loaded with `plugin:libmpv|command` (`loadfile`) and rendered on a GPU layer *behind* a transparent WebView; the bridge adds the `retold-embedded-video-active` body class so the page background lets the video show through. Property changes arrive via the `mpv-event-main` Tauri event (no polling).
 2. **External mpv** -- on other platforms, or if embedded init fails, `mpv_play` opens mpv in its own window and the bridge polls `mpv_get_status` every 500 ms for the overlay.

@@ -1,0 +1,6 @@
+flowchart TB
+    START["Play with Native Player"] --> T1{"Embedded libmpv<br/>available? (macOS)"}
+    T1 -- "yes" --> EMBED["Tier 1: embedded libmpv<br/>renders behind transparent WebView<br/>(plugin:libmpv commands)"]
+    T1 -- "no" --> T2{"External mpv<br/>launches?"}
+    T2 -- "yes" --> EXT["Tier 2: external mpv process<br/>(mpv_play + JSON IPC)"]
+    T2 -- "no" --> T3["Tier 3: in-browser player<br/>(retold-remote MediaViewer)"]

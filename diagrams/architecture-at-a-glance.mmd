@@ -1,0 +1,7 @@
+flowchart LR
+    subgraph Desktop[retold-remote-desktop]
+        WEB[retold-remote Web App<br/>WebView] --- BRIDGE[Native Bridge JS] --- NATIVE[Rust Shell<br/>Tauri Commands]
+    end
+    Desktop -->|HTTP / proxy_fetch| Server[retold-remote server]
+    Desktop -.->|spawns| LOCAL[Local retold-remote<br/>serving a folder]
+    NATIVE -.->|launches| MPV[mpv player]

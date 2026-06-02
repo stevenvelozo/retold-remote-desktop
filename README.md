@@ -44,15 +44,8 @@ This launches `tauri dev`, which compiles the Rust shell and opens a native wind
 
 ## Architecture at a Glance
 
-```mermaid
-flowchart LR
-    subgraph Desktop[retold-remote-desktop]
-        WEB[retold-remote Web App<br/>WebView] --- BRIDGE[Native Bridge JS] --- NATIVE[Rust Shell<br/>Tauri Commands]
-    end
-    Desktop -->|HTTP / proxy_fetch| Server[retold-remote server]
-    Desktop -.->|spawns| LOCAL[Local retold-remote<br/>serving a folder]
-    NATIVE -.->|launches| MPV[mpv player]
-```
+<!-- bespoke diagram: edit diagrams/architecture-at-a-glance.mmd or .hints.json, then: npx pict-renderer-graph build modules/apps/retold-remote-desktop -->
+![Architecture at a Glance](diagrams/architecture-at-a-glance.svg)
 
 - **Web layer** -- the unmodified `retold-remote` Pict application, loaded from `web-app/`.
 - **Native bridge** (`web-app/retold-native-bridge.js`) -- a small script that loads before the app: detects the platform, shows a connection screen, rewrites API/content URLs, proxies requests through Rust to bypass CORS, and intercepts media for native playback.

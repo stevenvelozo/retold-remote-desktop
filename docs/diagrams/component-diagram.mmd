@@ -1,0 +1,32 @@
+flowchart TB
+    subgraph Desktop["retold-remote-desktop (Tauri WebView)"]
+        direction TB
+        subgraph Frontend["web-app/"]
+            INDEX["index.html"]
+            BRIDGE["retold-native-bridge.js"]
+            APP["retold-remote.min.js<br/>(Pict app)"]
+            INDEX --> BRIDGE
+            INDEX --> APP
+        end
+        subgraph Shell["src-tauri/ (Rust)"]
+            PROXY["proxy_fetch"]
+            SRV["server_manager<br/>start/stop/status"]
+            MPV["mpv_controller<br/>play/control/status"]
+            TRAY["Tray + Menu"]
+            PLUGINS["Plugins:<br/>window-state, dialog,<br/>shell, store, libmpv*"]
+        end
+        BRIDGE -- "invoke()" --> PROXY
+        BRIDGE -- "invoke()" --> SRV
+        BRIDGE -- "invoke()" --> MPV
+        TRAY -- "window.eval()" --> BRIDGE
+    end
+
+    SERVER["retold-remote server"]
+    MPVBIN["mpv binary"]
+
+    PROXY -- "HTTP (reqwest)" --> SERVER
+    SRV -. "spawns retold-remote serve" .-> SERVER
+    MPV -. "spawns / IPC" .-> MPVBIN
+
+    style Frontend fill:#e3f2fd,stroke:#42a5f5,color:#333
+    style Shell fill:#fff3e0,stroke:#ffa726,color:#333
