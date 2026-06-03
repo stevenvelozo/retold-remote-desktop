@@ -15,29 +15,8 @@ This page covers building and packaging `retold-remote-desktop` for macOS, Windo
 
 ## 1. Project Layout at a Glance
 
-```
-retold-remote-desktop/
-├── package.json              # npm scripts (dev / build / bundle)
-├── scripts/
-│   └── copy-web-app.sh       # sync retold-remote web assets into web-app/
-├── web-app/                  # frontend served by Tauri (frontendDist)
-│   ├── index.html
-│   ├── retold-native-bridge.js
-│   └── retold-native-bridge.css
-├── src-tauri/                # the native Rust shell
-│   ├── tauri.conf.json       # app/window/bundle config
-│   ├── Cargo.toml            # Rust crate + dependencies
-│   ├── build.rs
-│   ├── capabilities/         # permission sets
-│   ├── icons/                # app icons
-│   ├── lib/                  # bundled resources (e.g. libmpv wrapper)
-│   └── src/
-│       ├── main.rs
-│       ├── lib.rs            # app builder, proxy_fetch, tray, menu
-│       ├── server_manager.rs # embedded retold-remote server
-│       └── mpv_controller.rs # external mpv control
-└── .github/workflows/build.yml
-```
+<!-- bespoke diagram: edit diagrams/1-project-layout-at-a-glance.mmd or .hints.json, then: npx pict-renderer-graph build modules/apps/retold-remote-desktop/docs -->
+![1. Project Layout at a Glance](diagrams/1-project-layout-at-a-glance.svg)
 
 ## 2. Build a Web Bundle First
 

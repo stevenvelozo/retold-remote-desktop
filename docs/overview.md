@@ -42,13 +42,8 @@ Native video playback uses embedded libmpv on macOS (rendering behind a transpar
 
 The desktop app is an outer edge of a Retold deployment. It talks to one thing -- a `retold-remote` server -- which brokers everything else.
 
-```
-macOS / Windows / Linux  ──HTTP (via proxy_fetch)──>  retold-remote (Orator)
-                                                          │
-                                                          ├── Fable (config, logging, DI)
-                                                          ├── Meadow (data access)
-                                                          └── content / media on disk
-```
+<!-- bespoke diagram: edit diagrams/relationship-to-the-rest-of-the-ecosystem.mmd or .hints.json, then: npx pict-renderer-graph build modules/apps/retold-remote-desktop/docs -->
+![Relationship to the Rest of the Ecosystem](diagrams/relationship-to-the-rest-of-the-ecosystem.svg)
 
 It shares its native bridge script with the [`retold-remote-ios`](https://fable-retold.github.io/retold-remote-ios/) client: the same code detects whether it is running under Tauri (desktop) or Capacitor (iOS) and adapts accordingly.
 
